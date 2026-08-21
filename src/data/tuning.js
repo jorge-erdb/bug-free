@@ -37,20 +37,14 @@ export const PLAYER = {
   airAccel: 1900,
   airFriction: 700,
 
-  jumpVelocity: -790,
   /**
-   * Releasing jump early clamps upward velocity to this fraction of the launch speed.
-   * Peak height scales with the square of velocity, so 0.7 gives a tap jump about half the
-   * height of a full one (~72px vs ~142px) — short enough to matter, tall enough to still
-   * clear the generator's minimum gap. Below roughly 0.65 the tap jump stops clearing
-   * anything and effectively becomes a dead input.
+   * Upward speed of the automatic bounce, applied the instant the player touches a surface.
+   *
+   * There is no jump button: landing *is* jumping, so this is the only launch speed in the
+   * game and every hop is identical. Against the gravity above it gives a peak rise of
+   * v²/2g ≈ 148px (about 142px measured), which is what sets the generator's vertical cap.
    */
-  jumpCutoff: 0.7,
-
-  /** Grace period after walking off a ledge during which a jump still works. */
-  coyoteTime: 0.1,
-  /** Jump pressed slightly before landing is remembered this long and fires on touchdown. */
-  jumpBuffer: 0.1,
+  bounceVelocity: -790,
 };
 
 export const CAMERA = {
@@ -77,11 +71,11 @@ export const PLATFORM = {
 /**
  * Layout limits for the generator.
  *
- * These are derived from the jump, not guessed. Peak rise is v²/2g =
- * 790²/(2·2100) ≈ 148px, and a full jump arc lasts about 0.75s, covering ~218px at
- * runSpeed. The caps below sit meaningfully inside both numbers so every generated gap is
- * clearable without frame-perfect input — difficulty comes from hazards and pacing, never
- * from a jump the player physically cannot make.
+ * These are derived from the bounce, not guessed. Peak rise is v²/2g =
+ * 790²/(2·2100) ≈ 148px, and a full bounce arc lasts about 0.75s, covering ~218px at
+ * runSpeed. The caps below sit meaningfully inside both numbers, so the player always has
+ * both the height and the time to steer onto the next platform — difficulty comes from
+ * hazards and pacing, never from a gap that cannot physically be crossed.
  */
 export const GENERATION = {
   minVerticalGap: 62,

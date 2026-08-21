@@ -13,34 +13,53 @@ import { VIEW } from '../data/tuning.js';
 
 /**
  * A key can drive several actions at once, which is how the same arrow keys serve both
- * gameplay and menu navigation without a modal input scheme: Up is `jump` in a run and
- * `up` in a menu, and each context simply reads the action it cares about.
+ * gameplay and menu navigation without a modal input scheme: Up is `up` in a menu and
+ * unused in a run, and each context simply reads the action it cares about.
+ *
+ * There is no `jump` binding — the player bounces automatically (see game/player.js), so
+ * during a run the only meaningful keys are left and right.
  */
 const KEY_BINDINGS = {
   ArrowLeft: ['left'],
   KeyA: ['left'],
   ArrowRight: ['right'],
   KeyD: ['right'],
-  ArrowUp: ['jump', 'up'],
-  KeyW: ['jump', 'up'],
+  ArrowUp: ['up'],
+  KeyW: ['up'],
   ArrowDown: ['down'],
   KeyS: ['down'],
-  Space: ['jump', 'confirm'],
+  Space: ['confirm'],
   Enter: ['confirm'],
   KeyR: ['restart'],
   Escape: ['back'],
   KeyP: ['back'],
 };
 
-export function createInput(canvas) {
+/**
+ * @param {object} canvas The object returned by engine/render.js createCanvas.
+ * @param {object} [options]
+ * @param {Array<{x: number, y: number, width: number, height: number}>} [options.deadZones]
+ *   Logical-space rectangles that never steer. On-screen buttons live here, so reaching for
+ *   one doesn't also send the player sideways.
+ */
+export function createInput(canvas, { deadZones = [] } = {}) {
   const held = new Set();
   const pressed = new Set();
 
   /**
-   * Touch controls are only drawn once a touch has actually occurred — no user-agent
-   * sniffing, and desktop stays clean even on hybrid laptops with touchscreens.
+   * Whether to present the game as touch-first.
+   *
+   * Seeded from the platform's own report of a touchscreen rather than waiting for the
+   * first touch: a player who has to touch the screen once before any control hint appears
+   * is a player who spent their first run guessing. It is still promoted to true on a real
+   * touch, which covers devices that under-report.
+   *
+   * Keyboard never stops working, so a hybrid laptop showing touch hints loses nothing.
    */
-  let touchSeen = false;
+  let touchSeen = (
+    (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
+    || 'ontouchstart' in window
+  );
 
   /** Maps each active touch id to the action it triggered, so multi-touch releases cleanly. */
   const activeTouches = new Map();
@@ -72,17 +91,33 @@ export function createInput(canvas) {
     for (const action of actions) release(action);
   });
 
-  // A held key stays "down" forever if the window loses focus mid-press.
-  window.addEventListener('blur', () => held.clear());
+  // A held key or finger stays "down" forever if the window loses focus mid-press. Touches
+  // matter as much as keys here: an interrupted drag would otherwise leave the player
+  // walking into a wall until the next touch happened to release the same action.
+  window.addEventListener('blur', () => {
+    held.clear();
+    activeTouches.clear();
+  });
 
   /**
-   * Screen is split into three zones in logical coordinates: bottom-left and bottom-right
-   * thirds steer, everything above the control band jumps. Tapping anywhere high on the
-   * screen jumps, which is far more forgiving than a small button.
+   * Steering is the only touch action, so the whole play area is the control: hold the left
+   * half to go left, the right half to go right.
+   *
+   * Splitting the entire screen rather than a strip along the bottom means there is no
+   * button to hit and no dead zone to miss — a thumb resting anywhere on its side of the
+   * screen works, on a phone or a tablet, and the playfield loses no space to a control
+   * band.
+   *
+   * The only exclusions are the dead zones, which is where on-screen buttons sit; steering
+   * from there would fire a stray step every time the player reached for one.
    */
   function actionForPoint(x, y) {
-    const bandTop = VIEW.height * 0.72;
-    if (y < bandTop) return 'jump';
+    for (const zone of deadZones) {
+      if (
+        x >= zone.x && x <= zone.x + zone.width
+        && y >= zone.y && y <= zone.y + zone.height
+      ) return null;
+    }
     return x < VIEW.width / 2 ? 'left' : 'right';
   }
 

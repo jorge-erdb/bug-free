@@ -89,8 +89,8 @@ function blip({ from, to, duration, type = 'square', gain = 1 }) {
 }
 
 export const Sfx = {
+  /** The bounce. Fires on every landing, since landing is what launches the player. */
   jump: () => blip({ from: 320, to: 620, duration: 0.11, type: 'square', gain: 0.5 }),
-  land: () => blip({ from: 200, to: 120, duration: 0.07, type: 'triangle', gain: 0.4 }),
   token: () => blip({ from: 880, to: 1320, duration: 0.1, type: 'sine', gain: 0.6 }),
   revert: () => blip({ from: 660, to: 220, duration: 0.35, type: 'sine', gain: 0.7 }),
   crumble: () => blip({ from: 160, to: 70, duration: 0.22, type: 'sawtooth', gain: 0.35 }),

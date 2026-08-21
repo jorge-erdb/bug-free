@@ -2,10 +2,12 @@
  * Headless playtest bot.
  *
  * Proves levels are actually completable by the movement model, not just that gaps fall
- * within a numeric cap. The bot is deliberately dumb — pick the lowest platform above me,
- * walk toward its centre, hold jump when grounded and it's higher than a tap can reach.
- * A competent human should comfortably beat a bot this crude, so if the bot finishes, the
- * level is not gated on precision.
+ * within a numeric cap. The bot is deliberately dumb — pick the lowest platform above me and
+ * steer toward its centre. A competent human should comfortably beat a bot this crude, so if
+ * the bot finishes, the level is not gated on precision.
+ *
+ * Since jumping is automatic, steering is the bot's only output, which makes it a much
+ * closer model of a real player than it used to be: it has exactly the same controls.
  */
 import { stepWorld, createWorld, WorldState } from '../src/game/world.js';
 import { buildLevel, buildEndlessStart, extendEndless } from '../src/game/generator.js';
@@ -33,7 +35,7 @@ function botInput() {
 }
 
 /**
- * Chooses inputs for one step.
+ * Chooses steering for one step.
  *
  * The bot commits to a target platform while airborne and only re-picks once it lands.
  * Re-picking every step made it chase whichever platform was nearest above its feet, which
@@ -81,37 +83,21 @@ function decide(world, input, memory) {
 
   if (!target) {
     /*
-     * Nothing left above — this is the top platform, and the finish line is just overhead.
-     * Keep jumping at full height to cross it. Idling here made the bot stall at 2298/2400
-     * on a level it had effectively already beaten.
+     * Nothing left above — this is the top platform and the finish line is just overhead.
+     * The bounce carries the player across it without any input, so the bot simply stops
+     * steering and lets the next arc finish the level.
      */
     input.set('left', false);
     input.set('right', false);
-    if (player.grounded) input.set('jump', !input.held('jump'));
-    else input.set('jump', player.vy < 0);
     return;
   }
 
   const targetCentre = target.x + target.width / 2;
   const dx = targetCentre - playerCentre;
 
+  // Steering is the entire control surface now, so this is the whole bot.
   input.set('right', dx > 6);
   input.set('left', dx < -6);
-
-  /*
-   * The game requires jump to be released before it will fire again — holding it does not
-   * auto-bounce. So on the ground the bot alternates release/press.
-   *
-   * In the air it holds only until its feet clear the target surface, then releases. That
-   * uses the variable-jump-height mechanic the way a player would, instead of launching to
-   * maximum height every time and sailing past the platform it was aiming for.
-   */
-  if (player.grounded) {
-    input.set('jump', !input.held('jump'));
-  } else {
-    const feetBelowTarget = playerBottom > target.y - 4;
-    input.set('jump', player.vy < 0 && feetBelowTarget);
-  }
 }
 
 function play(world, maxSeconds = 240) {
@@ -186,6 +172,18 @@ console.log('\n--- endless survivability ---');
   while (world.state === WorldState.PLAYING && steps < maxSteps) {
     // Keep generating ahead of the camera, the way the endless mode will.
     extendEndless(start, world, world.camera.y - VIEW.height);
+
+    /*
+     * Hazards are held frozen for the whole loop, using the git revert power-up's own
+     * mechanism, so the climb runs its full length.
+     *
+     * What this loop uniquely proves is that a long live session keeps its entity lists
+     * bounded — and a bot that dies to a crawler nine seconds in proves nothing about
+     * culling, however the run is seeded. Frozen bugs still fill the lists and are still
+     * culled, so the thing under test is untouched; only the dying stops.
+     */
+    world.revertRemaining = 10;
+
     decide(world, input, memory);
     stepWorld(world, input, DT);
     input.clearPressed();

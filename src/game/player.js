@@ -5,12 +5,15 @@ import { PALETTE, roundRect } from '../engine/render.js';
 /**
  * The player: an LLM, rendered as a rounded token with a blinking cursor for an eye.
  *
- * Movement carries the two forgiveness mechanics that make a climber feel fair rather
- * than fussy:
- *  - coyote time: a jump still works briefly after walking off a ledge
- *  - jump buffer: a jump pressed just before landing fires on touchdown
- * Both are small windows (~0.1s) that players never notice consciously but immediately
- * feel the absence of.
+ * There is no jump input. The player bounces automatically the instant they touch a
+ * surface, always to the same height, and the only thing they control is which way to
+ * steer while airborne. That is what lets one control scheme serve keyboard, tablet and
+ * phone identically — steering is the whole game, and a thumb can do it as well as a
+ * keyboard.
+ *
+ * It also removes the forgiveness machinery a manual jump needs (coyote time, jump
+ * buffering, variable height): none of it has anything to forgive when the jump is not a
+ * decision the player can get wrong.
  */
 export function createPlayer(x, y) {
   return {
@@ -22,16 +25,9 @@ export function createPlayer(x, y) {
     vy: 0,
 
     grounded: false,
-    /** The platform currently underfoot, so callers can react to what it is. */
+    /** The platform touched this step, so callers can react to what it is. */
     standingOn: null,
     facing: 1,
-
-    /** Countdown timers for the forgiveness windows. */
-    coyoteRemaining: 0,
-    jumpBufferRemaining: 0,
-
-    /** Set once the jump key is released, to stop a single press re-triggering. */
-    jumpConsumed: true,
 
     /** Highest point reached, in world space. Drives score and the ratcheting camera. */
     peakY: y,
@@ -42,10 +38,9 @@ export function createPlayer(x, y) {
 }
 
 export function stepPlayer(player, input, platforms, dt) {
-  // One-shot flags, consumed by the caller for feedback. Reset first so they only ever
-  // describe the step that just ran.
+  // One-shot flag, consumed by the caller for feedback. Reset first so it only ever
+  // describes the step that just ran.
   player.justJumped = false;
-  player.justLanded = false;
 
   const wantsLeft = input.held('left');
   const wantsRight = input.held('right');
@@ -67,33 +62,6 @@ export function stepPlayer(player, input, platforms, dt) {
       : Math.min(0, player.vx + drop);
   }
 
-  // --- Jump intent ---
-  if (input.pressed('jump')) player.jumpBufferRemaining = PLAYER.jumpBuffer;
-  if (!input.held('jump')) player.jumpConsumed = true;
-
-  const canJump = player.grounded || player.coyoteRemaining > 0;
-  if (player.jumpBufferRemaining > 0 && canJump && player.jumpConsumed) {
-    player.vy = PLAYER.jumpVelocity;
-    player.grounded = false;
-    player.standingOn = null;
-    player.coyoteRemaining = 0;
-    player.jumpBufferRemaining = 0;
-    player.jumpConsumed = false;
-    player.justJumped = true;
-  }
-
-  /*
-   * Releasing early clips upward momentum to a floor — once, not per frame. Decaying it
-   * every frame instead collapses the jump to almost nothing (a tap peaked at 26px against
-   * a 62px minimum gap), which makes short jumps useless rather than merely shorter.
-   * A single clamp keeps the tap jump a real option: it still clears the tightest gap, but
-   * not a wide one.
-   */
-  if (!input.held('jump') && player.vy < 0) {
-    const floor = PLAYER.jumpVelocity * PLAYER.jumpCutoff;
-    if (player.vy < floor) player.vy = floor;
-  }
-
   // --- Vertical ---
   player.vy += PHYSICS.gravity * dt;
   if (player.vy > PHYSICS.maxFallSpeed) player.vy = PHYSICS.maxFallSpeed;
@@ -102,25 +70,24 @@ export function stepPlayer(player, input, platforms, dt) {
   player.y += player.vy * dt;
   player.x += player.vx * dt;
 
-  const wasGrounded = player.grounded;
   const landedOn = resolveLanding(player, previousY, platforms);
 
   player.grounded = landedOn !== null;
   player.standingOn = landedOn;
-  player.justLanded = player.grounded && !wasGrounded;
 
-  // Being carried by a moving platform.
-  if (landedOn?.vx) player.x += landedOn.vx * dt;
+  if (landedOn) {
+    /*
+     * The bounce. `standingOn` is left set for this one step even though the player is
+     * already leaving, because that single frame of contact is what a crumbling platform
+     * reads to start falling apart and what a moving platform reads to carry the player.
+     * By the next step the player is airborne and both revert to null.
+     */
+    if (landedOn.vx) player.x += landedOn.vx * dt;
+    player.vy = PLAYER.bounceVelocity;
+    player.justJumped = true;
+  }
 
   clampToWalls(player);
-
-  // --- Timers ---
-  if (player.grounded) {
-    player.coyoteRemaining = PLAYER.coyoteTime;
-  } else {
-    player.coyoteRemaining = Math.max(0, player.coyoteRemaining - dt);
-  }
-  player.jumpBufferRemaining = Math.max(0, player.jumpBufferRemaining - dt);
 
   if (player.y < player.peakY) player.peakY = player.y;
   player.animTime += dt;
@@ -130,7 +97,7 @@ export function drawPlayer(ctx, player, camera) {
   const screenX = player.x;
   const screenY = player.y - camera.y;
 
-  // Squash and stretch read velocity, so jumps and landings have weight.
+  // Squash and stretch read velocity, so bounces and falls have weight.
   const stretch = Math.max(-0.18, Math.min(0.18, player.vy / 4200));
   const height = player.height * (1 + stretch);
   const width = player.width * (1 - stretch * 0.7);

@@ -6,10 +6,11 @@ import { createWorld, drawWorld, scoreOf, stepWorld, WorldState } from './game/w
 import { LEVELS } from './data/levels.js';
 import { VIEW } from './data/tuning.js';
 import { isLevelUnlocked, loadSave, recordEndlessScore, recordLevelComplete } from './save.js';
-import { drawHud, drawTouchZones } from './ui/hud.js';
+import { drawHud, drawSteerHints, PAUSE_BUTTON, pointInRect } from './ui/hud.js';
 import {
   drawGameOver, drawHelp, drawLevelComplete, drawLevelSelect, drawMainMenu, drawPaused,
-  levelSelectOptions, MAIN_MENU_OPTIONS, updateMenu,
+  gameOverButtons, levelCompleteButtons, levelSelectOptions, MAIN_MENU_OPTIONS,
+  overlayButtonAt, PANELS, pausedButtons, updateMenu,
 } from './ui/screens.js';
 import { drawBackground } from './game/background.js';
 import { Sfx, unlockAudio } from './engine/audio.js';
@@ -31,7 +32,8 @@ const Screen = {
 };
 
 const canvas = createCanvas(document.getElementById('game'));
-const input = createInput(canvas);
+// The pause button must not double as a steering tap — see engine/input.js.
+const input = createInput(canvas, { deadZones: [PAUSE_BUTTON] });
 const save = loadSave();
 
 const app = {
@@ -96,6 +98,12 @@ function restartRun() {
   else startEndless();
 }
 
+/** Leaves an active run for whichever menu the player came from. */
+function leaveRun() {
+  if (app.mode === 'campaign') openLevelSelect();
+  else openMenu();
+}
+
 // --- Per-screen input handling ---
 
 function stepMenu() {
@@ -125,24 +133,24 @@ function stepLevelSelect() {
 }
 
 function stepHelp() {
-  if (input.pressed('back') || input.pressed('confirm')) openMenu();
+  if (input.pressed('back') || input.pressed('confirm') || input.tap()) openMenu();
 }
 
 function stepRun(dt) {
   const world = app.world;
+  const tap = input.tap();
 
   if (world.state === WorldState.PLAYING) {
     if (app.paused) {
-      // While paused, confirm resumes and back leaves the run — matching the on-screen hint.
-      if (input.pressed('confirm')) app.paused = false;
-      else if (input.pressed('back')) {
-        if (app.mode === 'campaign') openLevelSelect();
-        else openMenu();
-      }
+      // Confirm resumes and back leaves — mirrored by the two on-screen buttons, so the
+      // pause screen is fully operable with no keyboard.
+      const button = overlayButtonAt(tap, pausedButtons().length, PANELS.paused);
+      if (input.pressed('confirm') || button === 0) app.paused = false;
+      else if (input.pressed('back') || button === 1) leaveRun();
       return;
     }
 
-    if (input.pressed('back')) {
+    if (input.pressed('back') || (tap && pointInRect(tap, PAUSE_BUTTON))) {
       app.paused = true;
       return;
     }
@@ -165,13 +173,21 @@ function stepRun(dt) {
   // The run is over: record the result once, then wait for a decision.
   recordResultOnce();
 
-  if (input.pressed('back')) {
-    if (app.mode === 'campaign') openLevelSelect();
-    else openMenu();
+  const won = world.state === WorldState.WON;
+  const isLast = app.levelIndex === LEVELS.length - 1;
+  const labels = won ? levelCompleteButtons(app.mode === 'campaign' && isLast) : gameOverButtons();
+  const button = overlayButtonAt(tap, labels.length, PANELS.result);
+
+  // The last campaign level offers a single button, which quits rather than advancing.
+  const quitPressed = input.pressed('back')
+    || (button === 1)
+    || (button === 0 && labels.length === 1);
+  if (quitPressed) {
+    leaveRun();
     return;
   }
 
-  if (!input.pressed('confirm') && !input.pressed('restart')) return;
+  if (button !== 0 && !input.pressed('confirm') && !input.pressed('restart')) return;
 
   if (world.state === WorldState.DEAD) {
     restartRun();
@@ -196,7 +212,6 @@ function playEvents(events) {
   for (const event of new Set(events)) {
     switch (event) {
       case 'jump': Sfx.jump(); break;
-      case 'land': Sfx.land(); break;
       case 'token': Sfx.token(); break;
       case 'revert': Sfx.revert(); break;
       case 'crumble': Sfx.crumble(); break;
@@ -227,15 +242,15 @@ function draw() {
 
   if (app.screen === Screen.RUN) {
     drawWorld(ctx, app.world);
+    const playing = app.world.state === WorldState.PLAYING && !app.paused;
     drawHud(ctx, app.world, {
       title: app.mode === 'campaign' ? LEVELS[app.levelIndex].title : 'endless.log',
       mode: app.mode,
       best: save.bestScore,
+      touch: input.hasTouch() && playing,
     });
 
-    if (input.hasTouch() && app.world.state === WorldState.PLAYING && !app.paused) {
-      drawTouchZones(ctx);
-    }
+    if (input.hasTouch() && playing) drawSteerHints(ctx, app.world.elapsed);
 
     if (app.paused) drawPaused(ctx);
     else if (app.world.state === WorldState.DEAD) {

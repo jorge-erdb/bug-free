@@ -18,8 +18,16 @@ import { GENERATION, PLATFORM, VIEW } from '../data/tuning.js';
 const SPAWN_Y = 0;
 const WALL_MARGIN = 52;
 
-/** Height above the spawn point kept free of hazards, so no run can end before it begins. */
-const SAFE_START_HEIGHT = 260;
+/**
+ * Height above the spawn point kept free of hazards, so no run can end before it begins.
+ *
+ * This has to clear several bounces, not one. The player cannot stop climbing — there is no
+ * jump button to hold back on — so they cover about 141px every 0.78s from the moment the
+ * run starts, whether they have read the screen or not. At the old 260px a run could reach
+ * the first hazard tier inside two bounces, and playtests died to a null pointer 0.7s in,
+ * having never had a decision to make. Half a screen gives roughly three seconds of runway.
+ */
+const SAFE_START_HEIGHT = 520;
 
 /**
  * @typedef {object} LevelConfig

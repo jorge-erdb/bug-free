@@ -145,7 +145,7 @@ export function drawMainMenu(ctx, menu, save) {
   ));
 
   drawMenu(ctx, menu, options, 300);
-  text(ctx, 'flechas para elegir · espacio para confirmar', VIEW.width / 2, VIEW.height - 60, {
+  text(ctx, 'toca una opción · o flechas y espacio', VIEW.width / 2, VIEW.height - 60, {
     size: 12, color: PALETTE.textDim, align: 'center',
   });
   return options;
@@ -176,7 +176,7 @@ export function drawLevelSelect(ctx, menu, save) {
     });
   }
 
-  text(ctx, 'esc para volver', VIEW.width / 2, VIEW.height - 60, {
+  text(ctx, 'toca un nivel · esc para volver', VIEW.width / 2, VIEW.height - 60, {
     size: 12, color: PALETTE.textDim, align: 'center',
   });
   return options;
@@ -186,32 +186,117 @@ export function drawHelp(ctx) {
   drawHeader(ctx, 'cómo jugar', null);
 
   const lines = [
-    ['←  →  /  A  D', 'moverte'],
-    ['espacio  /  W', 'saltar — mantén para saltar más alto'],
-    ['R', 'reiniciar al instante'],
-    ['esc', 'pausa'],
+    ['el salto', 'es automático: rebotas al aterrizar'],
+    ['tú solo', 'eliges hacia dónde caes'],
     ['', ''],
-    ['plataformas verdes', 'sólidas'],
-    ['plataformas azules', 'se mueven'],
-    ['plataformas ámbar', 'se rompen al pisarlas'],
-    ['plataformas rojas', 'generan bugs'],
+    ['←  →   A  D', 'moverte'],
+    ['toca un lado', 'moverte en móvil o tablet'],
+    ['R', 'reiniciar al instante'],
+    ['esc  ·  ⏸', 'pausa'],
+    ['', ''],
+    ['verde', 'plataforma sólida'],
+    ['azul', 'se mueve de lado a lado'],
+    ['ámbar', 'se rompe en cuanto la tocas'],
+    ['rojo', 'genera bugs'],
     ['', ''],
     ['bugs', 'te matan al tocarte'],
     ['{}', 'tokens — puntos'],
     ['git revert', 'congela los bugs 3 segundos'],
   ];
 
-  let y = 230;
+  let y = 220;
   for (const [key, description] of lines) {
     if (key) {
-      text(ctx, key, 90, y, { size: 13, color: PALETTE.accent });
-      text(ctx, description, 250, y, { size: 13, color: PALETTE.textDim });
+      text(ctx, key, 70, y, { size: 13, color: PALETTE.accent });
+      text(ctx, description, 235, y, { size: 13, color: PALETTE.textDim });
     }
     y += 26;
   }
 
-  text(ctx, 'esc o espacio para volver', VIEW.width / 2, VIEW.height - 60, {
+  text(ctx, 'toca la pantalla · o esc / espacio para volver', VIEW.width / 2, VIEW.height - 60, {
     size: 12, color: PALETTE.textDim, align: 'center',
+  });
+}
+
+/**
+ * In-run overlays are the one place the game must be operable with no keyboard at all, so
+ * every choice they offer is a real button: drawn and hit-tested from the same rectangles,
+ * and mirrored by the keyboard shortcuts printed beneath them.
+ *
+ * Before this, the death and victory screens waited on `confirm`, `restart` or `back` —
+ * none of which a touchscreen can produce — so finishing or failing a run on a phone left
+ * the player with no way forward but reloading the page.
+ */
+export const PANELS = {
+  result: { y: VIEW.height / 2 - 105, height: 220 },
+  paused: { y: VIEW.height / 2 - 70, height: 150 },
+};
+
+const BUTTON_HEIGHT = 46;
+
+export function gameOverButtons() {
+  return ['reintentar', 'salir'];
+}
+
+export function levelCompleteButtons(isLast) {
+  return isLast ? ['volver al menú'] : ['siguiente', 'salir'];
+}
+
+export function pausedButtons() {
+  return ['continuar', 'salir'];
+}
+
+function buttonRects(count, panel) {
+  const margin = 34;
+  const gap = 12;
+  const available = VIEW.width - margin * 2;
+  const width = (available - gap * (count - 1)) / count;
+  const y = panel.y + panel.height - BUTTON_HEIGHT - 16;
+
+  return Array.from({ length: count }, (unused, index) => ({
+    x: margin + index * (width + gap),
+    y,
+    width,
+    height: BUTTON_HEIGHT,
+  }));
+}
+
+/** @returns {number|null} index of the button under `tap`, or null. */
+export function overlayButtonAt(tap, count, panel) {
+  if (!tap) return null;
+  const rects = buttonRects(count, panel);
+  for (let i = 0; i < rects.length; i += 1) {
+    const rect = rects[i];
+    if (
+      tap.x >= rect.x && tap.x <= rect.x + rect.width
+      && tap.y >= rect.y && tap.y <= rect.y + rect.height
+    ) return i;
+  }
+  return null;
+}
+
+function drawButtons(ctx, labels, panel) {
+  const rects = buttonRects(labels.length, panel);
+
+  labels.forEach((label, index) => {
+    const rect = rects[index];
+    // The first button is the one the player almost always wants, so it carries the accent.
+    const primary = index === 0;
+
+    ctx.fillStyle = primary ? 'rgba(88, 166, 255, 0.16)' : 'rgba(22, 27, 34, 0.9)';
+    roundRect(ctx, rect.x, rect.y, rect.width, rect.height, 6);
+    ctx.fill();
+
+    ctx.strokeStyle = primary ? PALETTE.accent : PALETTE.gutter;
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, rect.x, rect.y, rect.width, rect.height, 6);
+    ctx.stroke();
+
+    text(ctx, label, rect.x + rect.width / 2, rect.y + 16, {
+      size: 14,
+      color: primary ? PALETTE.text : PALETTE.textDim,
+      align: 'center',
+    });
   });
 }
 
@@ -230,68 +315,69 @@ function drawPanel(ctx, y, height) {
 }
 
 export function drawGameOver(ctx, world, { mode, score, isRecord }) {
-  const y = VIEW.height / 2 - 90;
-  drawPanel(ctx, y, 180);
+  const panel = PANELS.result;
+  const { y } = panel;
+  drawPanel(ctx, y, panel.height);
 
-  text(ctx, 'run failed', VIEW.width / 2, y + 22, {
+  text(ctx, 'run failed', VIEW.width / 2, y + 18, {
     size: 24, color: PALETTE.danger, align: 'center', weight: 'bold',
   });
 
   // The death reason is the joke and the information, so it gets prime position.
   ctx.font = `12px ${FONT}`;
-  text(ctx, world.deathReason, VIEW.width / 2, y + 58, {
+  text(ctx, world.deathReason, VIEW.width / 2, y + 52, {
     size: 12, color: PALETTE.warning, align: 'center',
   });
 
   if (mode === 'endless') {
-    text(ctx, `score ${score}`, VIEW.width / 2, y + 88, {
+    text(ctx, `score ${score}`, VIEW.width / 2, y + 78, {
       size: 17, color: PALETTE.text, align: 'center',
     });
     if (isRecord) {
-      text(ctx, '¡nuevo récord!', VIEW.width / 2, y + 112, {
+      text(ctx, '¡nuevo récord!', VIEW.width / 2, y + 102, {
         size: 12, color: PALETTE.token, align: 'center',
       });
     }
   } else {
-    text(ctx, `${Math.max(0, world.height)}px escalados`, VIEW.width / 2, y + 88, {
+    text(ctx, `${Math.max(0, world.height)}px escalados`, VIEW.width / 2, y + 78, {
       size: 15, color: PALETTE.textDim, align: 'center',
     });
   }
 
-  text(ctx, 'espacio para reintentar · esc para salir', VIEW.width / 2, y + 146, {
-    size: 12, color: PALETTE.textDim, align: 'center',
-  });
+  drawButtons(ctx, gameOverButtons(), panel);
 }
 
 export function drawLevelComplete(ctx, world, { title, isLast }) {
-  const y = VIEW.height / 2 - 90;
-  drawPanel(ctx, y, 180);
+  const panel = PANELS.result;
+  const { y } = panel;
+  drawPanel(ctx, y, panel.height);
 
-  text(ctx, '✓ deployed', VIEW.width / 2, y + 22, {
+  text(ctx, '✓ deployed', VIEW.width / 2, y + 18, {
     size: 26, color: PALETTE.platformEdge, align: 'center', weight: 'bold',
   });
-  text(ctx, `${title} está en producción`, VIEW.width / 2, y + 60, {
+  text(ctx, `${title} está en producción`, VIEW.width / 2, y + 56, {
     size: 13, color: PALETTE.comment, align: 'center',
   });
-  text(ctx, `${world.tokensCollected} tokens · ${world.elapsed.toFixed(1)}s`, VIEW.width / 2, y + 88, {
+  text(ctx, `${world.tokensCollected} tokens · ${world.elapsed.toFixed(1)}s`, VIEW.width / 2, y + 82, {
     size: 13, color: PALETTE.textDim, align: 'center',
   });
+  if (isLast) {
+    text(ctx, 'has enviado todo.', VIEW.width / 2, y + 104, {
+      size: 12, color: PALETTE.token, align: 'center',
+    });
+  }
 
-  const hint = isLast
-    ? 'has enviado todo. espacio para volver al menú'
-    : 'espacio para el siguiente nivel · esc para el menú';
-  text(ctx, hint, VIEW.width / 2, y + 146, {
-    size: 12, color: PALETTE.textDim, align: 'center',
-  });
+  drawButtons(ctx, levelCompleteButtons(isLast), panel);
 }
 
 export function drawPaused(ctx) {
-  const y = VIEW.height / 2 - 50;
-  drawPanel(ctx, y, 100);
-  text(ctx, 'paused', VIEW.width / 2, y + 26, {
+  const panel = PANELS.paused;
+  const { y } = panel;
+  drawPanel(ctx, y, panel.height);
+
+  text(ctx, 'paused', VIEW.width / 2, y + 24, {
     size: 22, color: PALETTE.text, align: 'center', weight: 'bold',
   });
-  text(ctx, 'espacio para continuar · esc para salir', VIEW.width / 2, y + 62, {
-    size: 12, color: PALETTE.textDim, align: 'center',
-  });
+
+  drawButtons(ctx, pausedButtons(), panel);
 }

@@ -56,8 +56,8 @@ export function createWorld(layout) {
     revertRemaining: 0,
 
     /**
-     * Feedback events raised by the last step — 'jump', 'land', 'token', 'revert',
-     * 'crumble', 'death', 'deployed' — for the caller to turn into sound.
+     * Feedback events raised by the last step — 'jump', 'token', 'revert', 'crumble',
+     * 'death', 'deployed' — for the caller to turn into sound.
      *
      * The simulation reports what happened rather than playing anything itself, so world.js
      * stays free of browser APIs and remains runnable headlessly under node for the playtest
@@ -90,8 +90,8 @@ export function stepWorld(world, input, dt) {
 
   // --- Player ---
   stepPlayer(player, input, world.platforms, dt);
+  // Landing and jumping are the same instant now, so one event covers the bounce.
   if (player.justJumped) world.events.push('jump');
-  if (player.justLanded) world.events.push('land');
 
   // --- Hazards and pickups ---
   for (const bug of world.bugs) {

@@ -22,54 +22,57 @@ function fakeInput(state = {}) {
   };
 }
 
-/** Measures peak rise and horizontal distance of a full-hold jump from a platform. */
-function measureJump({ holdJump = true, moveHorizontally = true } = {}) {
+/**
+ * Measures one automatic bounce: how high it rises, how far it can be steered, and how long
+ * the player is airborne.
+ *
+ * Every hop in the game is this hop — there is no jump input and no variable height — so
+ * these three numbers are the entire movement envelope the generator has to respect.
+ */
+function measureBounce({ steer = true } = {}) {
   const ground = createPlatform(0, 0, VIEW.width, 'NORMAL');
   const platforms = [ground];
-  const player = createPlayer(20, -PLAYER.height);
-  player.grounded = true;
-  player.standingOn = ground;
-  player.coyoteRemaining = PLAYER.coyoteTime;
+  // Start just above the surface so the first step lands and bounces.
+  const player = createPlayer(20, -PLAYER.height - 2);
 
   const input = fakeInput();
+  if (steer) input._held.add('right');
+
+  // Step once to touch down and launch.
+  stepPlayer(player, input, platforms, DT);
   const startY = player.y;
   const startX = player.x;
 
-  // Build horizontal speed first, the way a player would run up to a gap.
-  if (moveHorizontally) {
-    input._held.add('right');
-    for (let i = 0; i < 40; i += 1) stepPlayer(player, input, platforms, DT);
-  }
-
-  input._pressed.add('jump');
-  input._held.add('jump');
-
   let peakRise = 0;
   let horizontalAtPeak = 0;
+  let airborneSteps = 0;
 
   for (let i = 0; i < 240; i += 1) {
     stepPlayer(player, input, platforms, DT);
-    input.clearPressed();
-    if (!holdJump) input._held.delete('jump');
+    airborneSteps += 1;
 
     const rise = startY - player.y;
     if (rise > peakRise) {
       peakRise = rise;
       horizontalAtPeak = Math.abs(player.x - startX);
     }
+    // The next landing ends the arc.
     if (i > 5 && player.grounded) break;
   }
 
-  return { peakRise, horizontalAtPeak };
+  return { peakRise, horizontalAtPeak, airtime: airborneSteps * DT, player };
 }
 
-const full = measureJump({ holdJump: true });
-const tapped = measureJump({ holdJump: false });
+const full = measureBounce();
+const stationary = measureBounce({ steer: false });
+// Total horizontal reach over a whole arc, which is what the layout caps must fit inside.
+const reach = full.horizontalAtPeak * 2;
 
-console.log('--- jump envelope ---');
-console.log(`theoretical peak (v^2/2g): ${(PLAYER.jumpVelocity ** 2 / (2 * PHYSICS.gravity)).toFixed(1)}px`);
-console.log(`measured full-hold peak:   ${full.peakRise.toFixed(1)}px  (horizontal ${full.horizontalAtPeak.toFixed(0)}px)`);
-console.log(`measured tap peak:         ${tapped.peakRise.toFixed(1)}px`);
+console.log('--- bounce envelope ---');
+console.log(`theoretical peak (v^2/2g): ${(PLAYER.bounceVelocity ** 2 / (2 * PHYSICS.gravity)).toFixed(1)}px`);
+console.log(`measured bounce peak:      ${full.peakRise.toFixed(1)}px`);
+console.log(`airtime per bounce:        ${full.airtime.toFixed(2)}s`);
+console.log(`steer distance at peak:    ${full.horizontalAtPeak.toFixed(0)}px (~${reach.toFixed(0)}px per arc)`);
 console.log(`generator max vertical gap: ${GENERATION.maxVerticalGap}px`);
 console.log(`generator max horizontal:   ${GENERATION.maxHorizontalStep}px`);
 
@@ -83,14 +86,24 @@ function check(label, condition, detail = '') {
 
 console.log('\n--- reachability invariants ---');
 check(
-  'full jump clears the widest vertical gap with margin',
+  'the bounce clears the widest vertical gap with margin',
   full.peakRise > GENERATION.maxVerticalGap * 1.25,
   `${full.peakRise.toFixed(0)}px vs ${GENERATION.maxVerticalGap}px`,
 );
 check(
-  'variable jump height works (tap is meaningfully shorter than hold)',
-  tapped.peakRise < full.peakRise * 0.7,
-  `tap ${tapped.peakRise.toFixed(0)}px vs hold ${full.peakRise.toFixed(0)}px`,
+  'the bounce is repeatable — landing relaunches at the same height',
+  Math.abs(full.peakRise - stationary.peakRise) < 1,
+  `steering ${full.peakRise.toFixed(0)}px vs still ${stationary.peakRise.toFixed(0)}px`,
+);
+/*
+ * With no jump button, steering is the only control, so an arc must cover the widest
+ * horizontal step the generator can produce. If it cannot, the player is asked to reach a
+ * platform they physically cannot steer onto — the auto-jump equivalent of an unjumpable gap.
+ */
+check(
+  'one bounce can be steered across the widest horizontal step',
+  reach > GENERATION.maxHorizontalStep,
+  `${reach.toFixed(0)}px reach vs ${GENERATION.maxHorizontalStep}px step`,
 );
 
 console.log('\n--- generated layout invariants ---');

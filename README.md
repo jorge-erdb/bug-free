@@ -4,6 +4,10 @@ A vertical platformer about vibe coding. You're an LLM climbing from an empty fi
 deployed app, and the code you're standing on gets buggier the more ambitious the project
 gets. Touch a bug and the run ends with a stack trace.
 
+You never press jump. The climb is automatic — you bounce the instant you land, always to
+the same height — and the only thing you control is which way you're drifting when you come
+back down. One input, so a keyboard, a tablet and a thumb all play the same game.
+
 Zero dependencies, zero build step, zero assets — plain ES modules, one `<canvas>`, and
 every sound synthesised at runtime with WebAudio. Open `index.html` and it runs.
 
@@ -27,15 +31,19 @@ A static server is required — the game uses ES modules, which browsers refuse 
 
 | Action | Keyboard | Touch |
 | --- | --- | --- |
-| Move | `←` `→` or `A` `D` | bottom-left / bottom-right third |
-| Jump | `Space` or `W` / `↑` | tap anywhere above the control band |
-| Restart | `R` | — |
-| Pause / back | `Esc` or `P` | — |
-| Confirm | `Space` or `Enter` | tap the row |
+| Steer | `←` `→` or `A` `D` | hold the left or right half of the screen |
+| Jump | *automatic* | *automatic* |
+| Restart | `R` | the **reintentar** button |
+| Pause | `Esc` or `P` | the ⏸ button, top right |
+| Confirm / back | `Space`, `Enter`, `Esc` | tap a menu row or an on-screen button |
 
-Jump height is variable: tap for a short hop (~81px), hold for a full jump (~142px). Coyote
-time and jump buffering are both ~0.1s, so a jump pressed just after leaving a ledge or just
-before landing still works.
+Every bounce is identical: a peak rise of ~141px over ~0.78s airborne, during which you can
+steer about 203px horizontally. Those three numbers are the whole movement model, and they
+are what the generator's limits are derived from — the widest gap it can build is 112px
+vertically and 170px horizontally, so both sit comfortably inside one bounce.
+
+Touch play has no on-screen D-pad and no control band. The entire screen is the control,
+split down the middle, which keeps the playfield unobstructed on a phone.
 
 ## Modes
 
@@ -62,10 +70,10 @@ the best run is saved.
 | --- | --- |
 | 🟩 green platform | solid |
 | 🟦 blue platform | moves horizontally |
-| 🟧 amber platform | crumbles 0.6s after you land on it |
+| 🟧 amber platform | starts crumbling the moment you touch it — single use |
 | 🟥 red platform | periodically spawns bugs |
 | `e` crawler | patrols its platform — threatens the landing itself |
-| `∅` null pointer | hangs beneath a platform, drops when you pass below |
+| `∅` null pointer | hangs beneath a platform, drops when you pass below it on screen |
 | `∞` infinite loop | spins in place, making its platform a no-go |
 | `{}` token | +25 score, placed slightly off the safe route |
 | `git revert` | freezes every bug for 3 seconds |
@@ -90,7 +98,7 @@ src/
   game/
     world.js        the simulation: entity lists, step order, win/death
     generator.js    builds layouts for both modes
-    player.js       movement, coyote time, jump buffering
+    player.js       steering, and the automatic bounce
     platform.js     the four platform variants
     bug.js          the three hazard types
     token.js        score tokens and the git-revert power-up
@@ -115,7 +123,9 @@ under node with no DOM.
 
 **Reachability is structural, not checked afterwards.** Every platform is placed within the
 generator's vertical and horizontal caps of the previous one, and those caps are derived from
-the jump arc rather than guessed. There is no such thing as an impossible generated gap.
+the bounce arc rather than guessed. There is no such thing as an impossible generated gap.
+With no jump button the horizontal cap matters as much as the vertical one: steering is the
+only control, so an arc has to be able to *reach* the next platform sideways.
 
 **Bugs can never seal the only route.** The climb is a chain, so a bug on a chain platform
 would block the sole path. Whenever a route-blocking bug is placed, a clear bypass platform is
@@ -135,9 +145,9 @@ Plain node against the source modules, no dependencies and no test framework.
 | Suite | Checks |
 | --- | --- |
 | `looptest` | the simulation runs at 60Hz from 30 to 144fps, and a long stall is discarded rather than replayed |
-| `verify` | the measured jump envelope clears every gap the generator can produce |
+| `verify` | the measured bounce envelope clears every gap the generator can produce, vertically and horizontally |
 | `reachability` | a safe route to the finish exists on every campaign level, across 300 seeds of the hardest one, and deep into endless runs |
-| `playtest` | a bot plays each level end to end; entity lists stay bounded in endless |
+| `playtest` | a bot plays each level end to end using only steering; entity lists stay bounded over a 68s endless climb |
 | `savetest` | progress and high scores survive reloads, and corrupt or blocked storage degrades to a valid save |
 
 ## Deploying to GitHub Pages

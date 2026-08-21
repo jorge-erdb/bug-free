@@ -33,6 +33,16 @@ export const DEATH_MESSAGES = {
 
 const CRAWLER_SPEED = 46;
 const DROP_TRIGGER_WIDTH = 46;
+/**
+ * How far above the player a null pointer can be and still react to them.
+ *
+ * Without a ceiling the trigger is just "the player is below me", which every null pointer
+ * in the level satisfies — one hanging a full screen up would drop on a player who could
+ * not see it and had no reason to expect it. The threat is meant to be *climbing without
+ * looking up*, and that requires the thing you failed to look at to be on screen: the
+ * camera holds the player 595px from the top of the view, so this sits just inside that.
+ */
+const DROP_TRIGGER_HEIGHT = 420;
 
 export function createBug(type, x, y, host = null) {
   const style = TYPE_STYLE[type];
@@ -104,11 +114,12 @@ export function stepBug(bug, player, dt) {
 
     case BugType.NULL_POINTER: {
       if (!bug.dropping) {
-        // Trigger when the player is below and roughly aligned horizontally.
+        // Trigger when the player is close below and roughly aligned horizontally.
         const playerCentre = player.x + player.width / 2;
         const bugCentre = bug.x + bug.width / 2;
         const aligned = Math.abs(playerCentre - bugCentre) < DROP_TRIGGER_WIDTH;
-        const below = player.y > bug.y;
+        const separation = player.y - bug.y;
+        const below = separation > 0 && separation <= DROP_TRIGGER_HEIGHT;
         if (aligned && below) bug.dropping = true;
         break;
       }
