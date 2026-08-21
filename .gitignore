@@ -9,3 +9,6 @@ desktop.ini
 *.swp
 *.swo
 *~
+
+# Dependencies (the game has none, but a local static server may create this)
+node_modules/
